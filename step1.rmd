@@ -1,0 +1,83 @@
+---
+title: "CSCI 3701 Project Step 1"
+author: Paul Friederichsen
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+I found a website called "Mathematics Genealogy Project" and it seems like an intersting set of data to work with. I plan to scrape all the data from the site and get it into a form that it can be explored. There are a number of things that could be interesting about it. 
+- How the number of students advised has changed over time
+- Demographic changes over time, like countries
+- Looking at the "descendants" of specific famous mathematicians
+
+## The Data
+
+My data comes from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) at NDSU. It is a database of people who have recieved as doctorate in mathematics, which includes:
+- Their complete name
+- The name of the unviersity that awarded their degree
+- The year in which their degree was awarded
+- THe complete title of their dissertation
+- The complete name(s) of their advisor(s)
+
+They have collected this data from a variety of historical records and data submitted to them. It is presented on a fairly antiquated PHP website with an individual page for each mathematician that are (luckily) given incremental IDs.
+
+
+## Getting the Data
+
+### Grabbing the site
+
+The first step in getting the data is downloading the page for every mathematician. They all use URLs of the format `https://www.genealogy.math.ndsu.nodak.edu/id.php?id=55054` and at the time I downloaded them I determined there were 253772 records based on the number given on the home page and some testing (it was slightly higher than the given number). 
+
+
+I used curl to go through and download all of the pages:
+```bash
+curl -OZ https://www.genealogy.math.ndsu.nodak.edu/id.php?id=[1-253772]
+```
+
+After that finished (and it had to be restarted a few times), it looks like it missed a few.
+```bash
+[fried701@csci-4409 site-dump-1]$ ls -l | wc -l
+253760
+```
+
+
+So I wrote a small script to find them
+
+```bash
+[fried701@csci-4409 site-dump-1]$ seq 253772 | while read -r i; do
+>     [[ -f "id.php?id=$i" ]] || echo "$i is missing"
+> done                                                                                                                                           
+3938 is missing
+18047 is missing
+32161 is missing
+46276 is missing
+60392 is missing
+74507 is missing
+88623 is missing
+102739 is missing
+116854 is missing
+130970 is missing
+145086 is missing
+159201 is missing
+173317 is missing
+```
+
+I realized I could use the same code to download the missing files
+
+```bash
+seq 253772 | while read -r i; do
+    [[ -f "id.php?id=$i" ]] || curl -O https://www.genealogy.math.ndsu.nodak.edu/id.php?id=$i
+done
+```
+Now I had all 253773 files totaling 3.2gb. Though compressed into tar.gz it is 79mb.
+
+### Processing the raw data
+
+Now that I had the dump of all the HTML files, I had to go through them and get it into a useable form.
+
+
