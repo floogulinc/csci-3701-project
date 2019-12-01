@@ -34,3 +34,12 @@ vignettes/*.pdf
 # Temporary files created by R markdown
 *.utf8.md
 *.knit.md
+
+
+# Include site dump data
+
+!site-dump-1.tar.gz
+
+# Exclude extracted data
+
+site-dump-1/
