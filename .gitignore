@@ -43,3 +43,7 @@ vignettes/*.pdf
 # Exclude extracted data
 
 site-dump-1/
+
+
+packrat/lib*/
+packrat/src/
