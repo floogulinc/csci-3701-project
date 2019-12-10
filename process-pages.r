@@ -1,5 +1,6 @@
 library(tidyverse)  
 library(rvest)
+library(rlist)
 
 parse.id = function(addr) {
   return(sub(".*id.php\\?id=", '', addr) %>% strtoi)
@@ -7,10 +8,11 @@ parse.id = function(addr) {
 
 
 index <- 19964:19966
+index.nomissing <- list.filter(index, class(html_node(read_html(paste("site-dump-1/id.php_id=", ., sep="")), "#paddingWrapper")) != "xml_missing")
 
-test <- paste("site-dump-1/id.php_id=", index, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper")  %>% {
+test <- paste("site-dump-1/id.php_id=", index.nomissing, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper") %>% {
   tibble(
-    id = index,
+    id = index.nomissing,
     name = map(., html_node, "h2") %>% map_chr(html_text, trim = TRUE),
     schools = map(., ~ {
       tibble (
