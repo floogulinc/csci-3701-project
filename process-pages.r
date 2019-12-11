@@ -1,6 +1,11 @@
 library(tidyverse)  
 library(rvest)
 library(rlist)
+library(furrr)
+
+future::plan(multiprocess)
+
+chunk2 <- function(x,n) split(x, cut(seq_along(x), n, labels = FALSE)) 
 
 index <- 1:253772
 index.nomissing <- list.filter(index, class(html_node(read_html(paste("site-dump-1/id.php_id=", ., sep="")), "#paddingWrapper")) != "xml_missing")
@@ -13,23 +18,30 @@ parse.id = function(addr) {
   return(sub(".*id.php\\?id=", '', addr) %>% strtoi)
 }
 
-system.time(site.data <- paste("site-dump-1/id.php_id=", index.nomissing, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper") %>% {
-  tibble(
-    id = index.nomissing,
-    name = map(., html_node, "h2") %>% map_chr(html_text, trim = TRUE),
-    schools = map(., ~ {
-      tibble (
-        thesis = html_nodes(.x, "#thesisTitle") %>% html_text(trim = TRUE),
-        university = html_nodes(.x, xpath = "//span[contains(@style,'#006633')]") %>% html_text(),
-        advisors = html_nodes(.x, xpath = '//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
-        country = html_nodes(.x, "img") %>% html_attr("title")
-      )
-    }),
-    #country = map(., html_node, "img") %>% map_chr(html_attr, name = "title"),
-    advisors = map(., html_nodes, xpath = '//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
-    students.raw = map(., html_node, "table") %>% map_if(~ class(.) != "xml_missing" ,html_table),
-    students.id = map(., html_node, "table") %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id)
-  )
-})
+process.indices <- function(ind) {
+  paste("site-dump-1/id.php_id=", ind, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper") %>% {
+    tibble(
+      id = ind,
+      name = map(., html_node, "h2") %>% map_chr(html_text, trim = TRUE),
+      schools = map(., ~ {
+        tibble (
+          thesis = html_nodes(.x, "#thesisTitle") %>% html_text(trim = TRUE),
+          university = html_nodes(.x, xpath = "//span[contains(@style,'#006633')]") %>% html_text(),
+          advisors = html_nodes(.x, xpath = '//p[text()[contains(.,"Advisor")]|text()[contains(.,"Ph.D. advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+          countries = html_nodes(.x, xpath = "//div[contains(@style, 'line-height: 30px; text-align: center; margin-bottom: 1ex')]") %>% map(html_nodes, "img") %>% map(map, html_attr, "title")
+        )
+      }),
+      #country = map(., html_node, "img") %>% map_chr(html_attr, name = "title"),
+      advisors = map(., html_nodes, xpath = '//p[text()[contains(.,"Advisor")]|text()[contains(.,"Ph.D. advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+      students.raw = map(., html_node, "table") %>% map_if(~ class(.) != "xml_missing" ,html_table),
+      students.id = map(., html_node, "table") %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id)
+    )
+  }
+}
+
+
+index.nomissing <- readRDS("indexnomissing.Rda")
+
+site.data <- future_map_dfr(chunk2(index.nomissing, 10000), process.indices, .progress = TRUE)
 
 saveRDS(site.data, "sitedata.Rda")
