@@ -27,12 +27,11 @@ process.indices <- function(ind) {
         tibble (
           thesis = html_nodes(.x, "#thesisTitle") %>% html_text(trim = TRUE),
           university = html_nodes(.x, xpath = "//span[contains(@style,'#006633')]") %>% html_text(),
-          advisors = html_nodes(.x, xpath = '//p[text()[contains(.,"Advisor")]|text()[contains(.,"Ph.D. advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+          advisors = html_nodes(.x, xpath = '//p[contains(@style, "text-align: center; line-height: 2.75ex")]|//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
           countries = html_nodes(.x, xpath = "//div[contains(@style, 'line-height: 30px; text-align: center; margin-bottom: 1ex')]") %>% map(html_nodes, "img") %>% map(map, html_attr, "title")
         )
       }),
-      #country = map(., html_node, "img") %>% map_chr(html_attr, name = "title"),
-      advisors = map(., html_nodes, xpath = '//p[text()[contains(.,"Advisor")]|text()[contains(.,"Ph.D. advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+      advisors = map(., html_nodes, xpath = '//p[contains(@style, "text-align: center; line-height: 2.75ex")]|//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
       students.raw = map(., html_node, "table") %>% map_if(~ class(.) != "xml_missing" ,html_table),
       students.id = map(., html_node, "table") %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id)
     )
@@ -40,8 +39,22 @@ process.indices <- function(ind) {
 }
 
 
+process.trycatch <- function(ind) {
+  tryCatch({
+    process.indices(ind)
+  }, warning = function(w) {
+    print(ind)
+    print(w)
+  }, error = function(e) {
+    print(ind)
+    print(e)
+  }, finally = {
+  })
+}
+
+
 index.nomissing <- readRDS("indexnomissing.Rda")
 
-site.data <- future_map_dfr(chunk2(index.nomissing, 10000), process.indices, .progress = TRUE)
+site.data <- future_map_dfr(chunk2(index.nomissing, 50), process.indices, .progress = TRUE)
 
 saveRDS(site.data, "sitedata.Rda")
