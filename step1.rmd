@@ -6,6 +6,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)  
+library(rvest)
+library(rlist)
 ```
 
 ## Purpose
@@ -17,14 +20,26 @@ I found a website called "Mathematics Genealogy Project" and it seems like an in
 
 ## The Data
 
-My data comes from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) at NDSU. It is a database of people who have recieved as doctorate in mathematics, which includes:
-- Their complete name
-- The name of the unviersity that awarded their degree
-- The year in which their degree was awarded
-- THe complete title of their dissertation
-- The complete name(s) of their advisor(s)
+My data comes from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) at NDSU. It is a database of people who have received as doctorate in mathematics, which includes:
+
+- An ID of the person (integer) (this is a property o the URL)
+- Their complete name (string)
+- Their degrees/dissertations (will be represented as a tibble). For each university/dissertation:
+  - The name of the university (string)
+  - The year(s) in which their degree was awarded (integer/array of integers)
+  - The complete title of the disseration (string)
+  - The complete names of their advisors (array of strings)
+  - Advisors are also linked to so there will be the ID of each advisor (integers)
 
 They have collected this data from a variety of historical records and data submitted to them. It is presented on a fairly antiquated PHP website with an individual page for each mathematician that are (luckily) given incremental IDs.
+
+From their [FAQ](https://www.genealogy.math.ndsu.nodak.edu/faq.php):
+
+<blockquote style="font-size: 14px">
+<b>Where do you get your data?</b></p>
+
+<p>We depend on information from our visitors for most of our data. In cases of partial information, we search Dissertation Abstracts International in an effort to find complete information. We have also entered a considerable amount of data found on lists of graduates maintained by individual departments.</p>
+</blockquote>
 
 
 ## Getting the Data
@@ -79,5 +94,70 @@ Now I had all 253773 files totaling 3.2gb. Though compressed into tar.gz it is 7
 ### Processing the raw data
 
 Now that I had the dump of all the HTML files, I had to go through them and get it into a useable form.
+
+Note: The filenames have changed and all `?` have been replaced with `_`. This is because I extracted them on Windows and NTFS does not allow `?` in filenames
+
+#### Dealing with blank/error pages
+
+For some reason ID `187430` was an empty file and had to be redownloaded. I then noticed multiple files were like that and wrote something to find them:
+
+```{r, eval=FALSE}
+index <- 1:253772
+index.blanks <- list.filter(index, class(read_html(paste("site-dump-1/id.php_id=", ., sep=""))) == "xml_document")
+```
+
+That took about 25 min and found an additional 4 with the same issue.
+
+```
+[1] 201546 215662 229777 243846
+```
+
+I then went and redownloaded each of the missing ones.
+
+They are not in the archive at the moment, but included in an additional directory called `site-dump-1-patch`.
+
+---
+
+Next, some IDs have a blank page which simply say "You have specified an ID that does not exist in the database. Please back up and try again." So I needed to filter those out.
+
+```{r, eval=FALSE}
+index <- 1:253772
+index.nomissing <- list.filter(index, class(html_node(read_html(paste("site-dump-1/id.php_id=", ., sep="")), "#paddingWrapper")) != "xml_missing")
+
+saveRDS(index.nomissing, "indexnomissing.Rda")
+```
+
+This took 55 min and resulted in 249371 items, meaning there were 4401 bad IDs.
+
+#### Converting to a dataframe/tibble
+
+The next step was to go through all the pages again and make a tibble with the information from them.
+
+```{r, eval=FALSE}
+parse.id = function(addr) {
+  return(sub(".*id.php\\?id=", '', addr) %>% strtoi)
+}
+
+site.data <- paste("site-dump-1/id.php_id=", index.nomissing, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper") %>% {
+  tibble(
+    id = index.nomissing,
+    name = map(., html_node, "h2") %>% map_chr(html_text, trim = TRUE),
+    schools = map(., ~ {
+      tibble (
+        thesis = html_nodes(.x, "#thesisTitle") %>% html_text(trim = TRUE),
+        university = html_nodes(.x, xpath = "//span[contains(@style,'#006633')]") %>% html_text(),
+        advisors = html_nodes(.x, xpath = '//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+        country = html_nodes(.x, "img") %>% html_attr("title")
+      )
+    }),
+    #country = map(., html_node, "img") %>% map_chr(html_attr, name = "title"),
+    advisors = map(., html_nodes, xpath = '//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+    students.raw = map(., html_node, "table") %>% map_if(~ class(.) != "xml_missing" ,html_table),
+    students.id = map(., html_node, "table") %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id)
+  )
+}
+
+saveRDS(site.data, "sitedata.Rda")
+```
 
 
