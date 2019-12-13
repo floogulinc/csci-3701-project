@@ -1,0 +1,127 @@
+---
+title: "CSCI 3701 Project Step 2"
+author: "Paul Friederichsen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rlist)
+library(knitr)
+library(plotly)
+```
+
+## Step 1 recap
+
+My data comes from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) at NDSU. It is a database of people who have received as doctorate (or similar) in mathematics. This website includes these data points for a given individual:
+
+Their complete name
+- Their degrees/dissertations For each university/dissertation:
+  - The name of the university 
+  - The year(s) in which their degree was awarded
+  - The complete title of the dissertation
+  - The complete names of their advisors
+  
+I scrapped all the pages on the site (253772 of them) and then converted them into a dataframe (tibble).
+
+Let's import that now:
+```{r}
+site.data <- readRDS("sitedata.Rda")
+```
+
+That process included a good amount of data analysis in itself as I had to handle any pages with odd data that didn't follow what seemed to be the general format. Here are a couple of examples of this from step 1:
+
+<blockquote style="font-size: 14px">
+
+While working on this part I encountered rare instances of odd data. For example, there are some people with no country flag, or just one while they have multiple universities. I additionally found [a case](https://www.genealogy.math.ndsu.nodak.edu/id.php?id=252229) of someone where for a single dissertation there are two flags. Because of this I had to switch from a "country" field in the inner schools tibble to a "countries" field that is a list.
+
+Another extremely rare one that was difficult to figure out was [the instance](https://www.genealogy.math.ndsu.nodak.edu/id.php?id=236498) of "Ph.D. advisor:" instead of the normal "Advisor" in the text where the advisor links are. In [another instance](https://www.genealogy.math.ndsu.nodak.edu/id.php?id=93048) it was "Supervisor" instead. One of [this person's](https://www.genealogy.math.ndsu.nodak.edu/id.php?id=127962) is "Doctoral advisor". I finally generalized the xpath for the advisor `p` tag with it's style, while keeping the search for "Advisor" because some pages with no advisor don't have the same style for that `p` tag.
+
+</blockquote>
+
+Some other issues I ran into were:
+
+- IDs without a record, they just have a blank page that says You have specified an ID that does not exist in the database. Please back up and try again."
+- People with multiple degrees/dissertations
+- People with two country flags for a single University/degree
+- Degrees without a listed advisor, country, or university
+
+Looking at the case of multiple flags, we can find how many instances of those exist.
+
+```{r}
+allschools <- map_dfr(site.data$schools, ~ .)
+allschools[map_lgl(allschools$countries, ~ length(.) > 1),c(1,2,4)]
+```
+
+The second one is an interesting example, [3 flags](https://www.genealogy.math.ndsu.nodak.edu/id.php?id=7824) (for three colleges).
+
+## More data analysis
+
+Lets look at some trends and graphs.
+
+```{r, out.width="100%", fig.height=3}
+filterfreq <- 500
+allcountries <- unlist(allschools$countries)
+countrycounts <- plyr::count(allcountries)
+filteredcountrycounts <- filter(countrycounts, freq >= filterfreq)
+filteredcountrycounts$x <- as.character(filteredcountrycounts$x)
+filteredcountrycounts <- rbind(filteredcountrycounts, list("Other", sum(countrycounts$freq[countrycounts$freq < filterfreq])))
+
+(ggplot(filteredcountrycounts, aes(x, freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle=45,hjust=1)) + xlab("Country") + ggtitle("")) %>% ggplotly()
+```
+
+It looks like the majority of people in the database are from (or studied in) the United States, with another good portion from Germany, France, and the U.K.
+
+Lets look at the same data on a map.
+
+```{r, error=FALSE, warning=FALSE, message=FALSE}
+library(countrycode)
+countrycountsiso <- countrycounts
+countrycountsiso$c <- countrycode(countrycountsiso$x, "country.name", "iso3c")
+nacount <- sum(countrycounts$freq[is.na(countrycountsiso$c)])
+#countrycountsiso <- countrycountsiso[!is.na(countrycountsiso$c),]
+```
+
+
+```{r, out.width="100%"}
+plot_geo() %>%
+  add_trace(
+    z = countrycountsiso$freq, color = countrycountsiso$freq, colors = 'Blues',
+    text = countrycountsiso$x, locations = countrycountsiso$c, marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'Number of Dissertations', type="log") %>%
+  layout(
+    title = 'test',
+    geo = list(
+      showframe = FALSE,
+      showcoastlines = FALSE,
+      projection = list(type = 'Mercator')
+    )
+  )
+
+```
+
+
+
+
+## Bringing it into a graph library
+```{r, echo=FALSE}
+library(igraph)
+```
+
+
+```{r, eval=FALSE}
+nodes <- site.data[c("id", "name")]
+edges.studentOf <- unnest(site.data[,c("id", "advisors")], cols = "advisors")
+edges.studentOf$type <- "studentOf"
+colnames(edges.studentOf) <- c("from", "to", "type")
+
+saveRDS(edges.studentOf, "edges-student-of.Rda")
+
+edges.advisorTo <- unnest(site.data[,c("id", "students.id")], cols = "students.id")
+edges.advisorTo$type <- "advisorTo"
+colnames(edges.advisorTo) <- c("from", "to", "type")
+
+saveRDS(edges.advisorTo, "edges-advisor-to.Rda")
+
+```

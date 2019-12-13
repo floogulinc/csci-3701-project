@@ -28,6 +28,11 @@ Source: CRAN
 Version: 1.0.3
 Hash: 99f6a1855b2f9434e1399d565d2ed9df
 
+Package: XML
+Source: CRAN
+Version: 3.98-1.20
+Hash: bf2d8ed9d5fb16209c9fc8ceccb94cf5
+
 Package: askpass
 Source: CRAN
 Version: 1.1
@@ -94,6 +99,11 @@ Source: CRAN
 Version: 4.3
 Hash: 3916ae5637dbaf5996dbde80ea92a047
 
+Package: data.table
+Source: CRAN
+Version: 1.12.6
+Hash: 4fbfebe60de9b5c065ba21f37c68e544
+
 Package: dbplyr
 Source: CRAN
 Version: 1.4.2
@@ -146,6 +156,18 @@ Version: 1.3.1
 Hash: 11d1e11317360bc03002aa5575d792a3
 Requires: Rcpp
 
+Package: furrr
+Source: CRAN
+Version: 0.1.0
+Hash: 2bf07dd5ce0ab262a081cc9f0555b670
+Requires: future, globals, purrr, rlang
+
+Package: future
+Source: CRAN
+Version: 1.15.1
+Hash: 5973fb0744e5d3a3bc2f2a424187c66c
+Requires: digest, globals, listenv
+
 Package: generics
 Source: CRAN
 Version: 0.0.2
@@ -157,6 +179,11 @@ Version: 3.2.1
 Hash: 7cf3f9df0089475f133ec23befca1032
 Requires: digest, gtable, lazyeval, reshape2, rlang, scales, tibble,
     viridisLite, withr
+
+Package: globals
+Source: CRAN
+Version: 0.12.5
+Hash: 93c51eaf39b178fd11ff574d3eae5b88
 
 Package: glue
 Source: CRAN
@@ -223,6 +250,11 @@ Source: CRAN
 Version: 0.1.0
 Hash: fd2ceffa778c010fab2df12b2eccd835
 Requires: glue, rlang
+
+Package: listenv
+Source: CRAN
+Version: 0.8.0
+Hash: 1e47a0224c5b814c05161cf2da491b2c
 
 Package: lubridate
 Source: CRAN
@@ -354,6 +386,12 @@ Source: CRAN
 Version: 0.4.2
 Hash: c5cfcde637bbff4e42edad2e69dac5c7
 
+Package: rlist
+Source: CRAN
+Version: 0.4.6.1
+Hash: 4900e17a86fa510778fd99079c905d5d
+Requires: XML, data.table, jsonlite, yaml
+
 Package: rmarkdown
 Source: CRAN
 Version: 1.18
@@ -406,6 +444,11 @@ Source: CRAN
 Version: 2.1.3
 Hash: f59680d81ddc45fa3fcb8c07686d1d89
 Requires: cli, crayon, fansi, pillar, pkgconfig, rlang
+
+Package: tictoc
+Source: CRAN
+Version: 1.0
+Hash: 0379257b730eed5b9089765c2921a098
 
 Package: tidyr
 Source: CRAN
