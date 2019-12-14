@@ -60,10 +60,40 @@ From their [FAQ](https://www.genealogy.math.ndsu.nodak.edu/faq.php):
 
 I scrapped all the pages on the site (253772 of them) and then converted them into a dataframe.
 
-The scrapping process involved using `curl` to download all of the pages and then going through them with `rvest` to get the important information into a dataframe. The full details and code are in [part 1](part1.html).
+The scrapping process involved using `curl` to download all of the pages and then going through them with `rvest` to get the important information into a dataframe. The most relevant code is below.
+
+Downloading all the pages:
 
 ```bash
 curl -OZ https://www.genealogy.math.ndsu.nodak.edu/id.php?id=[1-253772]
+```
+
+The function that builds the datatable:
+
+```{r, eval=FALSE}
+parse.id = function(addr) {
+  return(sub(".*id.php\\?id=", '', addr) %>% strtoi)
+}
+
+process.indices <- function(ind) {
+  paste("site-dump-1/id.php_id=", ind, sep = "") %>% map(read_html) %>% map(html_node, "#paddingWrapper") %>% {
+    tibble(
+      id = ind,
+      name = map(., html_node, "h2") %>% map_chr(html_text, trim = TRUE),
+      schools = map(., ~ {
+        tibble (
+          thesis = html_nodes(.x, "#thesisTitle") %>% html_text(trim = TRUE),
+          university = html_nodes(.x, xpath = "//span[contains(@style,'#006633')]") %>% html_text(),
+          advisors = html_nodes(.x, xpath = '//p[contains(@style, "text-align: center; line-height: 2.75ex")]|//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+          countries = html_nodes(.x, xpath = "//div[contains(@style, 'line-height: 30px; text-align: center; margin-bottom: 1ex')]") %>% map(html_nodes, "img") %>% map(map, html_attr, "title")
+        )
+      }),
+      advisors = map(., html_nodes, xpath = '//p[contains(@style, "text-align: center; line-height: 2.75ex")]|//p[text()[contains(.,"Advisor")]]') %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id),
+      students.raw = map(., html_node, "table") %>% map_if(~ class(.) != "xml_missing" ,html_table),
+      students.id = map(., html_node, "table") %>% map(html_nodes, "a") %>% map(html_attr, "href") %>% map(map, parse.id)
+    )
+  }
+}
 ```
 
 Processing the pages into the dataframe was very challenging. There were many variations in just a few of the pages that were hard to find and account for. The HTML of the pages themselves is not well structured and has very little hierarchy or tagging.
