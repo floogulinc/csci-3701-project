@@ -155,7 +155,7 @@ One of those was looking at cliques, groups of nodes that are fully interconnect
 induced.subgraph(net, unlist(largest_cliques(net))) %>% visIgraph()
 ```
 
-Here is a graph of 5 generations of "descendents" of Euler:
+Here is a graph of 5 generations of "descendants" of Euler:
 
 ```{r, out.width="100%", echo=FALSE}
 induced_subgraph(net, unlist(ego(net, nodes = match(38586, nodes$id), order = 5, mode="out"))) %>% visIgraph(layout="layout_as_tree", flip.y=FALSE) 
