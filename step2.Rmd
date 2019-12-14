@@ -8,8 +8,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(rlist)
+library(furrr)
 library(knitr)
 library(plotly)
+
+future::plan(multiprocess)
+chunk2 <- function(x,n) split(x, cut(seq_along(x), n, labels = FALSE)) 
 ```
 
 ## Step 1 recap
@@ -28,6 +32,7 @@ I scrapped all the pages on the site (253772 of them) and then converted them in
 Let's import that now:
 ```{r}
 site.data <- readRDS("sitedata.Rda")
+format(object.size(site.data), units="Mb")
 ```
 
 That process included a good amount of data analysis in itself as I had to handle any pages with odd data that didn't follow what seemed to be the general format. Here are a couple of examples of this from step 1:
@@ -60,7 +65,37 @@ The second one is an interesting example, [3 flags](https://www.genealogy.math.n
 
 Lets look at some trends and graphs.
 
-```{r, out.width="100%", fig.height=3}
+### Number of advisors and students
+Let's look at the number of advisors and students people have.
+
+```{r, out.width="100%", fig.height=4}
+advisorCounts <- map_int(site.data$advisors, length)
+
+summary(advisorCounts)
+
+plot_ly(y=table(advisorCounts), type="bar") %>% layout(title="Frequency of Advisor Count", xaxis=list(title="Number of Advisors"), yaxis=list(title="Frequency"))
+```
+
+
+
+```{r, out.width="100%", fig.height=4}
+studentCounts <- map_int(site.data$students.id, length)
+
+summary(studentCounts)
+
+plot_ly(y=table(studentCounts)[0:8], type="bar") %>% layout(title="Frequency of Student Count (< 8 students)", xaxis=list(title="Number of Students"), yaxis=list(title="Frequency"))
+
+```
+
+I cut off the X-axis at 7 but there are some people with many more students than that, lets look at those with more than 8 students.
+
+```{r, out.width="100%"}
+plot_ly(y=table(studentCounts)[8:max(studentCounts)], type="bar") %>% layout(title="Frequency of Student Count (> 7 students)", xaxis=list(title="Number of Students"), yaxis=list(title="Frequency"))
+```
+
+### Dissertations by Country
+
+```{r, out.width="100%", fig.height=4}
 filterfreq <- 500
 allcountries <- unlist(allschools$countries)
 countrycounts <- plyr::count(allcountries)
@@ -68,7 +103,7 @@ filteredcountrycounts <- filter(countrycounts, freq >= filterfreq)
 filteredcountrycounts$x <- as.character(filteredcountrycounts$x)
 filteredcountrycounts <- rbind(filteredcountrycounts, list("Other", sum(countrycounts$freq[countrycounts$freq < filterfreq])))
 
-(ggplot(filteredcountrycounts, aes(x, freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle=45,hjust=1)) + xlab("Country") + ggtitle("")) %>% ggplotly()
+(ggplot(filteredcountrycounts, aes(x, freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle=45,hjust=1)) + xlab("Country") + ggtitle("Dissertations by Country")) %>% ggplotly()
 ```
 
 It looks like the majority of people in the database are from (or studied in) the United States, with another good portion from Germany, France, and the U.K.
@@ -91,8 +126,10 @@ plot_geo() %>%
     text = countrycountsiso$x, locations = countrycountsiso$c, marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
   colorbar(title = 'Number of Dissertations', type="log") %>%
   layout(
-    title = 'test',
+    title = 'Dissertations by Country Map',
     geo = list(
+      showcountries = TRUE,
+      countrycolor = toRGB("light grey"),
       showframe = FALSE,
       showcoastlines = FALSE,
       projection = list(type = 'Mercator')
@@ -102,26 +139,68 @@ plot_geo() %>%
 ```
 
 
-
-
 ## Bringing it into a graph library
-```{r, echo=FALSE}
+
+The next step is to bring the data into some graph database or library. The first step to do so is to get the nodes and edges figured out.
+
+```{r, include=FALSE}
 library(igraph)
 ```
 
+I will create a new datatable of just the ID and names of everyone to be the nodes and a datatable of connections, the edges.
+
+```{r}
+nodes <- site.data[c("id", "name")]
+```
+
+There will be two types of edges, those representing that the `from` id is a student of the `to` ID and those representing that the `from` ID is an advisor to the `to` ID.
 
 ```{r, eval=FALSE}
-nodes <- site.data[c("id", "name")]
-edges.studentOf <- unnest(site.data[,c("id", "advisors")], cols = "advisors")
+splitdf <- function(df, n) {
+  split(df, (seq(nrow(df))-1) %/% n) 
+}
+
+edges.studentOf <- future_map_dfr(splitdf(site.data[,c("id", "advisors")], 10000), unnest, cols = "advisors", .progress = TRUE)
 edges.studentOf$type <- "studentOf"
+edges.studentOf$advisors <- unlist(edges.studentOf$advisors) # advisors field are all lists of 1 from unnest
 colnames(edges.studentOf) <- c("from", "to", "type")
 
 saveRDS(edges.studentOf, "edges-student-of.Rda")
 
-edges.advisorTo <- unnest(site.data[,c("id", "students.id")], cols = "students.id")
+edges.advisorTo <- future_map_dfr(splitdf(site.data[,c("id", "students.id")], 10000), unnest, cols = "students.id", .progress = TRUE)
 edges.advisorTo$type <- "advisorTo"
+edges.advisorTo$students.id <- unlist(edges.advisorTo$students.id) # students.id field are all lists of 1 from unnest
 colnames(edges.advisorTo) <- c("from", "to", "type")
 
 saveRDS(edges.advisorTo, "edges-advisor-to.Rda")
 
+edges <- rbind(edges.studentOf, edges.advisorTo)
+
+saveRDS(edges, "alledges.Rda")
 ```
+
+Running the operation in parallel really helped with RAM usage and made it fairly quick.
+
+Now lets look at what was created. We should have a simple dataframe with `from`, `to`, and `type`.
+
+```{r}
+edges <- readRDS("alledges.Rda")
+edges
+```
+
+Now let's bring that into the `igraph` library.
+
+```{r}
+net <- graph_from_data_frame(edges, vertices = nodes, directed = TRUE)
+net
+format(object.size(net), units="Mb")
+```
+
+We can also make one with the full set of data for the nodes, but it will be a larger structure.
+
+```{r}
+net2 <- graph_from_data_frame(edges, vertices = site.data, directed = TRUE)
+net2
+format(object.size(net2), units="Mb")
+```
+
