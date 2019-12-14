@@ -5,7 +5,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, error=FALSE)
 library(tidyverse)
 library(rlist)
 library(furrr)
@@ -15,6 +15,8 @@ library(plotly)
 future::plan(multiprocess)
 chunk2 <- function(x,n) split(x, cut(seq_along(x), n, labels = FALSE)) 
 ```
+
+[GitHub Repo](https://github.com/floogulinc/csci-3701-project)
 
 ## Step 1 recap
 
@@ -89,7 +91,7 @@ plot_ly(y=table(studentCounts)[0:8], type="bar") %>% layout(title="Frequency of 
 
 I cut off the X-axis at 7 but there are some people with many more students than that, lets look at those with more than 8 students.
 
-```{r, out.width="100%"}
+```{r, out.width="100%", fig.height=4}
 plot_ly(y=table(studentCounts)[8:max(studentCounts)], type="bar") %>% layout(title="Frequency of Student Count (> 7 students)", xaxis=list(title="Number of Students"), yaxis=list(title="Frequency"))
 ```
 
@@ -143,10 +145,6 @@ plot_geo() %>%
 
 The next step is to bring the data into some graph database or library. The first step to do so is to get the nodes and edges figured out.
 
-```{r, include=FALSE}
-library(igraph)
-```
-
 I will create a new datatable of just the ID and names of everyone to be the nodes and a datatable of connections, the edges.
 
 ```{r}
@@ -191,6 +189,8 @@ edges
 Now let's bring that into the `igraph` library.
 
 ```{r}
+library(igraph)
+
 net <- graph_from_data_frame(edges, vertices = nodes, directed = TRUE)
 net
 format(object.size(net), units="Mb")
@@ -204,3 +204,33 @@ net2
 format(object.size(net2), units="Mb")
 ```
 
+So now we have it in `igraph`. This is somewhat of a sanity check in itself since it imported everything fine.
+
+Let's chart some parts of the graph.
+
+Let's chart the first 10 edges (and their nodes) with the `visNetwork` library (they are interactive and can be panned and zoomed).
+
+```{r, out.width="100%"}
+edge_attr(net, "label") <- edge_attr(net, "type") # set label to type so we see the edge type
+
+library(visNetwork)
+
+visIgraph(subgraph.edges(net, eids=1:10))
+
+```
+
+Now for a larger example, the first 200 edges.
+
+```{r, out.width="100%"}
+visIgraph(subgraph.edges(net, eids=1:200))
+```
+
+Let's look at the neighborhood (order 3) of a specific person, that is those within 3 degrees of seperation.
+
+```{r, out.width="100%"}
+induced_subgraph(net, unlist(ego(net, nodes = 54719, order = 3))) %>% visIgraph()
+```
+
+## What's next
+
+We now run into the issue that none of the verious graph libraries for R are too good at dealing with such a large graph (most of the things I attempt to do with `igraph` seem to take forever or crash R) so in step 3 I will try to get the data into a dedicated graph database, potentially neo4j, and do further analysis and exploration from there.
