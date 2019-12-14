@@ -1,0 +1,159 @@
+---
+title: "CSCI 3701 Project Step 3"
+author: "Paul Friederichsen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, error=FALSE)
+library(tidyverse)
+library(rlist)
+library(plotly)
+
+library(igraph)
+library(visNetwork)
+
+
+chunk2 <- function(x,n) split(x, cut(seq_along(x), n, labels = FALSE)) 
+splitdf <- function(df, n) split(df, (seq(nrow(df))-1) %/% n)
+```
+
+[GitHub Repo](https://github.com/floogulinc/csci-3701-project)
+
+## Attempting to use Neo4j
+
+My first step to working with Neo4j is to get my data into it.
+
+### More data manipulation
+
+Import the data from previous steps:
+```{r}
+site.data <- readRDS("sitedata.Rda")
+edges.studentOf <- readRDS("edges-student-of.Rda")
+edges.advisorTo <- readRDS("edges-advisor-to.Rda")
+edges <- readRDS("alledges.Rda")
+```
+
+I would like to make a new dataframe for `nodes` and clean up whats included. I will also add a `country` field that is the first country of the first school of the person. We will assume that is their country.
+
+```{r}
+nodes <- site.data[c("id", "name")]
+nodes$country <- map(site.data$schools, ~ .) %>% map(~ .$countries) %>% map(first) %>% map(first) %>% as.character()
+nodes$country[nodes$country == "NULL"] <- NA
+```
+
+
+#### Making CSV files
+
+To get the graph into Neo4j, `csv` files seem to be the standard way.
+
+```{R, eval=FALSE}
+write_csv(nodes, "nodes.csv")
+write_csv(edges.studentOf, "edges-student-of.csv")
+write_csv(edges.advisorTo, "edges-advisor-to.csv")
+```
+
+### Connecting to Neo4j
+
+```{r, eval=FALSE}
+library(neo4r)
+con <- neo4j_api$new(
+  url = "http://localhost:7474",
+  user = "neo4j", 
+  password = "<password>"
+)
+con$get_version()
+```
+
+### Trying to get data into Neo4j
+
+You can't load CSVs like this...
+
+```{r, eval=FALSE}
+on_load_query <- 'CREATE (n:Person) SET n = row;'
+load_csv(url = "nodes.csv", 
+         con = con, header = TRUE, periodic_commit = 50, 
+         as = "row", on_load = on_load_query)
+```
+
+This is the first method I tried for adding nodes, but it's really slow and I think there is better.
+
+```{r, eval=FALSE}
+
+nodecyphers <- apply(nodes, 1, function(x) {vec_to_cypher(x, "Person")})
+for(cypher in nodecyphers) {
+  call_neo4j(paste("CREATE", cypher), con)
+}
+
+```
+
+This didn't end up working either
+
+```{r, eval=FALSE}
+
+#site.data$country <- map(site.data$schools, ~ .) %>% map(~ .$countries) %>% map(first) %>% map(first) %>% as.character()
+#site.data$country[site.data$country == "NULL"] <- NA
+
+nodes$name <- gsub("'", " ", nodes$name) #escape '
+
+nodecyphers <- apply(nodes, 1, function(x) {paste("CREATE",vec_to_cypher(x, "Person"))})
+writeLines(nodecyphers, "nodes.cypher")
+send_cypher("nodes.cypher", con)
+
+```
+
+A really hard to find error that came up with this is people with `'` in their names breaks the syntax of the query. There were more errors like this.
+
+Neo4j ended up being too difficult to work with for me and I gave up on using it here.
+
+
+## Making a GraphML file
+
+Exporting the graph as a GraphML file allows it to be used in some other programs that deal with graphs.
+
+Lets make a new graph, with only `advisorTo` edges and the new nodes structure.
+
+```{r}
+net <- graph_from_data_frame(edges.advisorTo, vertices = nodes, directed = TRUE)
+net
+```
+
+Now we can export the graph in GraphML format:
+```{r, eval=FALSE}
+write_graph(net, "advisor-to-graph.graphml", format="graphml")
+```
+
+GraphML can be imported by various programs, like [Gephi](https://gephi.org/) (which is very broken on my machine).
+
+## More graph analysis and visualization in R
+
+My plan now is to do some more in depth analysis of the graph I have made in R.
+
+```{r}
+edge_density(net)
+```
+Looking at edge density, the ratio of number of edges and number of possible edges, we find it is very small, which we should probably expect with this data.
+
+### Cliques
+
+Let's see how many max cliques there are.
+```{r}
+count_max_cliques(net)
+```
+
+Here I am looking at the largest cliques in the graph
+```{r}
+clique_num(net)
+
+lq <- largest_cliques(net)
+length(lq)
+```
+We see that the largest cliques formed are of 4 nodes and there are 17 of them. In other words, there are 17 groups where every person has some connection to the other 3.
+
+Let's graph them.
+```{r, out.width="100%"}
+induced.subgraph(net, unlist(lq)) %>% visIgraph()
+```
+
+
+
