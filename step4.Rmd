@@ -1,0 +1,169 @@
+---
+title: "CSCI 3701 Project Step 4"
+author: "Paul Friederichsen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, error=FALSE)
+library(tidyverse)
+library(rlist)
+library(plotly)
+
+library(countrycode)
+
+library(igraph)
+library(visNetwork)
+
+
+chunk2 <- function(x,n) split(x, cut(seq_along(x), n, labels = FALSE)) 
+splitdf <- function(df, n) split(df, (seq(nrow(df))-1) %/% n)
+
+site.data <- readRDS("sitedata.Rda")
+edges.studentOf <- readRDS("edges-student-of.Rda")
+edges.advisorTo <- readRDS("edges-advisor-to.Rda")
+edges <- readRDS("alledges.Rda")
+```
+
+[GitHub Repo](https://github.com/floogulinc/csci-3701-project)
+
+Previous Steps:
+
+- [Step 1](step1.html)
+- [Step 2](step2.html)
+- [Step 3](step3.html)
+
+## Data source
+
+I found a website called "[Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/)" from NDSU and it seemed like an interesting set of data to work with.
+
+It is a database of people who have received as doctorate (or similar) in mathematics. This website includes these data points for a given individual:
+
+Their complete name
+- Their degrees/dissertations For each university/dissertation:
+  - The name of the university 
+  - The year(s) in which their degree was awarded
+  - The complete title of the dissertation
+  - The complete names of their advisors
+  
+They have collected this data from a variety of historical records and data submitted to them. It is presented on a fairly antiquated PHP website with an individual page for each mathematician that are (luckily) given incremental IDs.
+
+From their [FAQ](https://www.genealogy.math.ndsu.nodak.edu/faq.php):
+
+<blockquote style="font-size: 14px">
+<b>Where do you get your data?</b></p>
+
+<p>We depend on information from our visitors for most of our data. In cases of partial information, we search Dissertation Abstracts International in an effort to find complete information. We have also entered a considerable amount of data found on lists of graduates maintained by individual departments.</p>
+</blockquote>
+
+## Data Processing
+
+I scrapped all the pages on the site (253772 of them) and then converted them into a dataframe.
+
+The scrapping process involved using `curl` to download all of the pages and then going through them with `rvest` to get the important information into a dataframe. The full details and code are in [part 1](part1.html).
+
+```bash
+curl -OZ https://www.genealogy.math.ndsu.nodak.edu/id.php?id=[1-253772]
+```
+
+Processing the pages into the dataframe was very challenging. There were many variations in just a few of the pages that were hard to find and account for. The HTML of the pages themselves is not well structured and has very little hierarchy or tagging.
+
+Some of the issues I ran into were:
+
+- IDs without a record, they just have a blank page that says You have specified an ID that does not exist in the database. Please back up and try again."
+- People with multiple degrees/dissertations
+- People with two country flags for a single University/degree
+- People with no country flags
+- Degrees without a listed advisor, country, or university
+- A few cases where the site doesn't say "Advisor" but rather "Supervisor" or "Doctoral advisor"
+
+Some of the data I would have liked to get was not practical to scrape into the dataframe. The year of each thesis is not well formatted and difficult to separate out of the page. There are sometimes multiple of them separated by commas or slashes.
+
+## Techniques
+
+After getting the data into R, I did some analysis on it as a dataframe and then converted it into a dataframe of nodes and one of edges so I could use the `igraph` library to look at the connections between people and visualize the structure of the graph.
+
+I attempted to use the even more powerful Neo4j but it ended up with a lot of issues and I could not get the data into it.
+
+## Results
+
+Looking at some of the basic numerical information, most people had 1 advisor and it was very rare to have 3 or more. Additionally, the majority of people have no students. This makes sense as professors are a relatively small portion of the population. There is some spread in number of students advised, it goes to as many as 140, but very few professors have more than a few students they have advised.
+
+
+```{r, out.width="100%", fig.height=4, echo=FALSE}
+advisorCounts <- map_int(site.data$advisors, length)
+
+plot_ly(y=table(advisorCounts), type="bar") %>% layout(title="Frequency of Advisor Count", xaxis=list(title="Number of Advisors"), yaxis=list(title="Frequency"))
+```
+
+```{r, out.width="100%", fig.height=4, echo=FALSE}
+studentCounts <- map_int(site.data$students.id, length)
+
+plot_ly(y=table(studentCounts), type="bar") %>% layout(title="Frequency of Student Count", xaxis=list(title="Number of Students"), yaxis=list(title="Frequency"))
+```
+
+### Dissertations by Country
+
+We find that the majority of people in the database studied in the United States, with Germany and France having the next most.
+
+```{r, echo=FALSE, out.width="100%"}
+filterfreq <- 500
+
+allschools <- map_dfr(site.data$schools, ~ .)
+allcountries <- unlist(allschools$countries)
+countrycounts <- plyr::count(allcountries)
+filteredcountrycounts <- filter(countrycounts, freq >= filterfreq)
+filteredcountrycounts$x <- as.character(filteredcountrycounts$x)
+filteredcountrycounts <- rbind(filteredcountrycounts, list("Other", sum(countrycounts$freq[countrycounts$freq < filterfreq])))
+
+countrycountsiso <- countrycounts
+countrycountsiso$c <- countrycode(countrycountsiso$x, "country.name", "iso3c")
+nacount <- sum(countrycounts$freq[is.na(countrycountsiso$c)])
+
+plot_geo() %>%
+  add_trace(
+    z = countrycountsiso$freq, color = countrycountsiso$freq, colors = 'Blues',
+    text = countrycountsiso$x, locations = countrycountsiso$c, marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'Number of Dissertations', type="log") %>%
+  layout(
+    title = 'Dissertations by Country Map',
+    geo = list(
+      showcountries = TRUE,
+      countrycolor = toRGB("light grey"),
+      showframe = FALSE,
+      showcoastlines = FALSE,
+      projection = list(type = 'Mercator')
+    )
+  )
+```
+
+### Graph Analysis
+
+```{r, include=FALSE}
+nodes <- site.data[c("id", "name")]
+nodes$country <- map(site.data$schools, ~ .) %>% map(~ .$countries) %>% map(first) %>% map(first) %>% as.character()
+nodes$country[nodes$country == "NULL"] <- NA
+
+net <- graph_from_data_frame(edges.advisorTo, vertices = nodes, directed = TRUE)
+```
+
+I looked at some of the statistics that can be applied to graphs. Though many of the things in the library don't work very well on such a large graph and would crash or hang forever.
+
+One of those was looking at cliques, groups of nodes that are fully interconnected. I found that the largest cliques formed are of 4 nodes and there are 17 of them. In other words, there are 17 groups where every person has some connection to the other 3.
+
+```{r, out.width="100%", echo=FALSE}
+induced.subgraph(net, unlist(largest_cliques(net))) %>% visIgraph()
+```
+
+Here is a graph of 5 generations of "descendents" of Euler:
+
+```{r, out.width="100%", echo=FALSE}
+induced_subgraph(net, unlist(ego(net, nodes = match(38586, nodes$id), order = 5, mode="out"))) %>% visIgraph(layout="layout_as_tree", flip.y=FALSE) 
+```
+
+## Conclusion
+
+This is a very interesting data set but also large and difficult to work with. This project ended up being mostly wrangling the data into a useable form and I think I have accomplished that fairly well. The data has gone from 253772 individual pages on a website to an R dataframe and a working graph model. I wish I had been able to get it into Neo4j to be able to do more robust queries and analysis.
+
+
+<br><br>
